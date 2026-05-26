@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { socket } from "../socket/socket";
 import Toolbar from "./Toolbar";
 import ChatSidebar from "./ChatSidebar";
 
 const CanvasBoard = ({ session }) => {
   const canvasRef = useRef(null);
-  const overlayRef = useRef(null); // for shape preview
+  const overlayRef = useRef(null);
+  const containerRef = useRef(null);
   const [activeTool, setActiveTool] = useState("pen");
   const [color, setColor] = useState("#000000");
   const [brushSize, setBrushSize] = useState(5);
@@ -17,32 +18,41 @@ const CanvasBoard = ({ session }) => {
   const previousPoint = useRef(null);
   const currentStroke = useRef([]);
 
-  // Text input state
+  // Text tool state
   const [textInput, setTextInput] = useState(null); // { x, y }
   const [textValue, setTextValue] = useState("");
   const textInputRef = useRef(null);
+  const textDragRef = useRef(null); // { startMouseX, startMouseY, startX, startY }
+
+  const TOOLBAR_HEIGHT = 90;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    canvas.width = window.innerWidth - 288; // minus sidebar
-    canvas.height = window.innerHeight - 90;
-    const overlay = overlayRef.current;
-    overlay.width = canvas.width;
-    overlay.height = canvas.height;
+    const updateSize = () => {
+      const canvas = canvasRef.current;
+      const overlay = overlayRef.current;
+      const sidebar = 288;
+      canvas.width = window.innerWidth - sidebar;
+      canvas.height = window.innerHeight - TOOLBAR_HEIGHT;
+      overlay.width = canvas.width;
+      overlay.height = canvas.height;
+      const ctx = canvas.getContext("2d");
+      initializeCanvas(ctx);
+      strokes.forEach((s) => renderStroke(s, ctx));
+    };
 
-    const ctx = canvas.getContext("2d");
-    initializeCanvas(ctx);
+    updateSize();
 
+    const ctx = canvasRef.current.getContext("2d");
     if (session.strokes?.length) {
       session.strokes.forEach((s) => renderStroke(s, ctx));
     }
 
     socket.on("draw", (stroke) => {
-      renderStroke(stroke, ctx);
+      renderStroke(stroke, canvasRef.current.getContext("2d"));
       setStrokes((prev) => [...prev, stroke]);
     });
     socket.on("clear-canvas", () => {
-      initializeCanvas(ctx);
+      initializeCanvas(canvasRef.current.getContext("2d"));
       setStrokes([]);
     });
     socket.on("user-list", setUsers);
@@ -54,7 +64,6 @@ const CanvasBoard = ({ session }) => {
     };
   }, []);
 
-  // Focus text input when it appears
   useEffect(() => {
     if (textInput) setTimeout(() => textInputRef.current?.focus(), 50);
   }, [textInput]);
@@ -64,12 +73,17 @@ const CanvasBoard = ({ session }) => {
     ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
+  // Clamp point within canvas bounds
+  const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return {
+      x: clamp(e.clientX - rect.left, 0, canvasRef.current.width),
+      y: clamp(e.clientY - rect.top, 0, canvasRef.current.height),
+    };
   };
 
-  // ── Freehand ──
   const drawSegment = (seg, ctx) => {
     ctx.beginPath();
     ctx.moveTo(seg.x0, seg.y0);
@@ -81,24 +95,18 @@ const CanvasBoard = ({ session }) => {
     ctx.closePath();
   };
 
-  // ── Shapes ──
   const drawShape = (ctx, tool, x0, y0, x1, y1, strokeColor, size) => {
     ctx.beginPath();
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = size;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-
     if (tool === "line") {
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
+      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     } else if (tool === "arrow") {
       const angle = Math.atan2(y1 - y0, x1 - x0);
       const headLen = Math.max(15, size * 4);
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
+      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x1 - headLen * Math.cos(angle - Math.PI / 6), y1 - headLen * Math.sin(angle - Math.PI / 6));
@@ -110,27 +118,13 @@ const CanvasBoard = ({ session }) => {
     } else if (tool === "circle") {
       const rx = Math.abs(x1 - x0) / 2;
       const ry = Math.abs(y1 - y0) / 2;
-      const cx = x0 + (x1 - x0) / 2;
-      const cy = y0 + (y1 - y0) / 2;
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+      ctx.ellipse(x0 + (x1 - x0) / 2, y0 + (y1 - y0) / 2, rx, ry, 0, 0, 2 * Math.PI);
       ctx.stroke();
     } else if (tool === "triangle") {
-      const mx = (x0 + x1) / 2;
-      ctx.moveTo(mx, y0);
-      ctx.lineTo(x1, y1);
-      ctx.lineTo(x0, y1);
-      ctx.closePath();
-      ctx.stroke();
+      ctx.moveTo((x0 + x1) / 2, y0);
+      ctx.lineTo(x1, y1); ctx.lineTo(x0, y1);
+      ctx.closePath(); ctx.stroke();
     }
-  };
-
-  // ── Text ──
-  const placeText = (x, y, text, strokeColor, size) => {
-    const ctx = canvasRef.current.getContext("2d");
-    const fontSize = Math.max(16, size * 3);
-    ctx.font = `${fontSize}px Inter, sans-serif`;
-    ctx.fillStyle = strokeColor;
-    ctx.fillText(text, x, y);
   };
 
   const renderStroke = (stroke, ctx) => {
@@ -154,16 +148,45 @@ const CanvasBoard = ({ session }) => {
     allStrokes.forEach((s) => renderStroke(s, ctx));
   };
 
-  // ── Mouse handlers ──
+  // ── Text box dragging ──
+  const handleTextMouseDown = (e) => {
+    e.stopPropagation();
+    textDragRef.current = {
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startX: textInput.x,
+      startY: textInput.y,
+    };
+
+    const onMove = (moveE) => {
+      if (!textDragRef.current) return;
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      const dx = moveE.clientX - textDragRef.current.startMouseX;
+      const dy = moveE.clientY - textDragRef.current.startMouseY;
+      const newX = clamp(textDragRef.current.startX + dx, 0, canvas.width - 120);
+      const newY = clamp(textDragRef.current.startY + dy, 20, canvas.height);
+      setTextInput({ x: newX, y: newY });
+    };
+
+    const onUp = () => {
+      textDragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  // ── Canvas mouse handlers ──
   const handleMouseDown = (e) => {
     const pos = getPos(e);
-
     if (activeTool === "text") {
       setTextInput(pos);
       setTextValue("");
       return;
     }
-
     drawing.current = true;
     startPoint.current = pos;
     previousPoint.current = pos;
@@ -182,15 +205,13 @@ const CanvasBoard = ({ session }) => {
       const seg = {
         x0: previousPoint.current.x, y0: previousPoint.current.y,
         x1: pos.x, y1: pos.y,
-        color: drawColor, size: brushSize,
-        tool: activeTool,
+        color: drawColor, size: brushSize, tool: activeTool,
       };
       drawSegment(seg, ctx);
       currentStroke.current.push(seg);
       socket.emit("draw", [seg]);
       previousPoint.current = pos;
     } else {
-      // Preview shape on overlay
       overlayCtx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
       drawShape(overlayCtx, activeTool, startPoint.current.x, startPoint.current.y, pos.x, pos.y, color, brushSize);
     }
@@ -200,20 +221,19 @@ const CanvasBoard = ({ session }) => {
     if (!drawing.current) return;
     drawing.current = false;
     socket.emit("drawing-status", false);
-
     const pos = getPos(e);
     const overlayCtx = overlayRef.current.getContext("2d");
     overlayCtx.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
 
     if (activeTool !== "pen" && activeTool !== "eraser") {
-      const ctx = canvasRef.current.getContext("2d");
       const shapeSeg = [{
         tool: activeTool,
         x0: startPoint.current.x, y0: startPoint.current.y,
         x1: pos.x, y1: pos.y,
         color, size: brushSize,
       }];
-      drawShape(ctx, activeTool, startPoint.current.x, startPoint.current.y, pos.x, pos.y, color, brushSize);
+      drawShape(canvasRef.current.getContext("2d"), activeTool,
+        startPoint.current.x, startPoint.current.y, pos.x, pos.y, color, brushSize);
       setStrokes((prev) => [...prev, shapeSeg]);
       socket.emit("draw", shapeSeg);
     } else {
@@ -226,8 +246,16 @@ const CanvasBoard = ({ session }) => {
 
   const commitText = () => {
     if (!textValue.trim() || !textInput) { setTextInput(null); return; }
-    const stroke = [{ tool: "text", x: textInput.x, y: textInput.y, text: textValue, color, size: brushSize }];
-    placeText(textInput.x, textInput.y, textValue, color, brushSize);
+    const canvas = canvasRef.current;
+    const fontSize = Math.max(16, brushSize * 3);
+    // Clamp text placement within canvas
+    const x = clamp(textInput.x, 0, canvas.width - 10);
+    const y = clamp(textInput.y, fontSize, canvas.height);
+    const stroke = [{ tool: "text", x, y, text: textValue, color, size: brushSize }];
+    const ctx = canvas.getContext("2d");
+    ctx.font = `${fontSize}px Inter, sans-serif`;
+    ctx.fillStyle = color;
+    ctx.fillText(textValue, x, y);
     setStrokes((prev) => [...prev, stroke]);
     socket.emit("draw", stroke);
     setTextInput(null);
@@ -255,10 +283,9 @@ const CanvasBoard = ({ session }) => {
         activeTool={activeTool} setActiveTool={setActiveTool}
       />
 
-      <div className="flex flex-1 overflow-hidden" style={{ paddingTop: "90px" }}>
+      <div className="flex flex-1 overflow-hidden" style={{ paddingTop: `${TOOLBAR_HEIGHT}px` }}>
         {/* Canvas area */}
-        <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900">
-          {/* Main canvas */}
+        <div ref={containerRef} className="flex-1 relative overflow-hidden">
           <canvas
             ref={canvasRef}
             className="absolute top-0 left-0 cursor-crosshair"
@@ -267,40 +294,57 @@ const CanvasBoard = ({ session }) => {
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
           />
-          {/* Shape preview overlay */}
           <canvas
             ref={overlayRef}
             className="absolute top-0 left-0 pointer-events-none"
           />
-          {/* Text input */}
+
+          {/* Draggable text input */}
           {textInput && (
-            <input
-              ref={textInputRef}
-              type="text"
-              value={textValue}
-              onChange={(e) => setTextValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitText();
-                if (e.key === "Escape") setTextInput(null);
-              }}
-              onBlur={commitText}
+            <div
               style={{
                 position: "absolute",
                 left: textInput.x,
-                top: textInput.y - 20,
-                fontSize: `${Math.max(16, brushSize * 3)}px`,
-                color: color,
-                background: "transparent",
-                border: "1.5px dashed #60a5fa",
-                outline: "none",
-                minWidth: "120px",
-                fontFamily: "Inter, sans-serif",
+                top: textInput.y - 28,
+                zIndex: 50,
+                cursor: "move",
+                userSelect: "none",
               }}
-            />
+              onMouseDown={handleTextMouseDown}
+            >
+              {/* Drag handle bar */}
+              <div className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-t-lg flex items-center justify-between gap-4 select-none">
+                <span>⠿ drag</span>
+                <span className="opacity-60 text-xs">Enter to place • Esc to cancel</span>
+              </div>
+              <input
+                ref={textInputRef}
+                type="text"
+                value={textValue}
+                onChange={(e) => setTextValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitText();
+                  if (e.key === "Escape") setTextInput(null);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: `${Math.max(16, brushSize * 3)}px`,
+                  color: color,
+                  background: "rgba(255,255,255,0.95)",
+                  border: "1.5px solid #3b82f6",
+                  borderTop: "none",
+                  outline: "none",
+                  minWidth: "160px",
+                  padding: "4px 8px",
+                  fontFamily: "Inter, sans-serif",
+                  borderRadius: "0 0 8px 8px",
+                  cursor: "text",
+                }}
+              />
+            </div>
           )}
         </div>
 
-        {/* Sidebar */}
         <ChatSidebar session={session} users={users} />
       </div>
     </div>
