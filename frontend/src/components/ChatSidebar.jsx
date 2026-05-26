@@ -3,6 +3,7 @@ import { Send, Users, MessageSquare, Copy, Check, Mic, Square, Play, Pause } fro
 import { socket } from "../socket/socket";
 import EmojiPicker from "emoji-picker-react";
 import { Smile } from "lucide-react";
+import { useState } from "react";
 
 const formatTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
