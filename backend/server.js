@@ -8,7 +8,10 @@ app.use(cors());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: { origin: [
+      "http://localhost:5173",
+      "https://your-app.vercel.app", // add this after Vercel deploy
+    ], methods: ["GET", "POST"] },
 });
 
 // roomCode -> { name, strokes, users: Map<socketId, {username, color, isDrawing}> }
