@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Users, MessageSquare, Copy, Check, Mic, Square, Play, Pause } from "lucide-react";
 import { socket } from "../socket/socket";
-import EmojiPicker from "emoji-picker-react";
 import { Smile } from "lucide-react";
 import { useState } from "react";
 
 const formatTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-const [showEmoji, setShowEmoji] = useState(false);
+
+const EMOJIS = [
+  "😀","😂","😍","🥰","😎","🤔","😭","😅","🥳","😊",
+  "👍","👎","❤️","🔥","✨","🎉","👏","🙌","💯","🤝",
+  "😤","🤯","😱","🥺","😴","🤗","😇","🤭","😋","🤩",
+  "🐶","🐱","🦊","🐼","🦁","🐸","🦋","🌸","🌈","⭐",
+  "🍕","🍔","🎂","☕","🍜","🍣","🍦","🍩","🥤","🍷",
+  "⚽","🏀","🎮","🎵","🎨","📸","🚀","💡","💎","🏆",
+];
+
+const [emojiSearch, setEmojiSearch] = useState("");
 
 const VoiceMessage = ({ audioData, isOwn }) => {
   const [playing, setPlaying] = useState(false);
@@ -192,17 +201,31 @@ const ChatSidebar = ({ session, users }) => {
 
               {/* Emoji Picker */}
               {showEmoji && (
-                <div className="absolute bottom-20 right-2 z-50">
-                  <EmojiPicker
-                    theme="dark"
-                    onEmojiClick={(emojiData) => {
-                      setInput((prev) => prev + emojiData.emoji);
-                      setShowEmoji(false);
-                    }}
-                    width={280}
-                    height={380}
-                    searchPlaceholder="Search emoji..."
+                <div className="absolute bottom-20 right-2 z-50 bg-slate-800 border border-slate-600 rounded-2xl p-3 shadow-2xl w-64">
+                  <input
+                    type="text"
+                    placeholder="Search emoji..."
+                    value={emojiSearch}
+                    onChange={(e) => setEmojiSearch(e.target.value)}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm placeholder-slate-400 focus:outline-none focus:border-blue-500 mb-2"
                   />
+                  <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
+                    {EMOJIS.filter(e =>
+                      emojiSearch === "" || e.includes(emojiSearch)
+                    ).map((emoji, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setInput((prev) => prev + emoji);
+                          setShowEmoji(false);
+                          setEmojiSearch("");
+                        }}
+                        className="text-xl hover:bg-slate-700 rounded-lg p-1 transition"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
