@@ -1,23 +1,59 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, Users, MessageSquare, Copy, Check } from "lucide-react";
+import { Send, Users, MessageSquare, Copy, Check, Mic, Square, Play, Pause } from "lucide-react";
 import { socket } from "../socket/socket";
 
-const formatTime = (iso) => {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const formatTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+const VoiceMessage = ({ audioData, isOwn }) => {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    audioRef.current = new Audio(`data:audio/webm;base64,${audioData}`);
+    audioRef.current.onended = () => setPlaying(false);
+  }, [audioData]);
+
+  const toggle = () => {
+    if (playing) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setPlaying(false);
+    } else {
+      audioRef.current.play();
+      setPlaying(true);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-sm ${
+        isOwn ? "bg-blue-600 text-white" : "bg-slate-700 text-slate-100"
+      }`}
+    >
+      {playing ? <Pause size={14} /> : <Play size={14} />}
+      <span className="text-xs">Voice message</span>
+      <div className="flex gap-0.5 items-center h-4">
+        {[3,5,7,4,6,3,5].map((h, i) => (
+          <div key={i} className={`w-0.5 rounded-full ${isOwn ? "bg-blue-200" : "bg-slate-400"}`} style={{ height: `${h * (playing ? 1.4 : 1)}px`, transition: "height 0.2s" }} />
+        ))}
+      </div>
+    </button>
+  );
 };
 
 const ChatSidebar = ({ session, users }) => {
-  const [tab, setTab] = useState("chat"); // "chat" | "users"
+  const [tab, setTab] = useState("chat");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [copied, setCopied] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    socket.on("chat-message", (msg) => {
-      setMessages((prev) => [...prev, msg]);
-    });
+    socket.on("chat-message", (msg) => setMessages((prev) => [...prev, msg]));
     return () => socket.off("chat-message");
   }, []);
 
@@ -37,6 +73,35 @@ const ChatSidebar = ({ session, users }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => chunksRef.current.push(e.data);
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result.split(",")[1];
+          socket.emit("voice-message", base64);
+        };
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecording(true);
+    } catch {
+      alert("Microphone access denied.");
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
   const drawingUsers = users.filter((u) => u.isDrawing);
 
   return (
@@ -45,13 +110,8 @@ const ChatSidebar = ({ session, users }) => {
       <div className="px-4 py-4 border-b border-slate-700">
         <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Room</p>
         <h2 className="text-white font-bold text-lg leading-tight">{session.roomName}</h2>
-        <button
-          onClick={copyCode}
-          className="flex items-center gap-2 mt-2 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition w-full"
-        >
-          <span className="font-mono text-blue-400 text-sm tracking-widest flex-1 text-left">
-            {session.roomCode}
-          </span>
+        <button onClick={copyCode} className="flex items-center gap-2 mt-2 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition w-full">
+          <span className="font-mono text-blue-400 text-sm tracking-widest flex-1 text-left">{session.roomCode}</span>
           {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-slate-400" />}
         </button>
         {drawingUsers.length > 0 && (
@@ -63,20 +123,10 @@ const ChatSidebar = ({ session, users }) => {
 
       {/* Tabs */}
       <div className="flex border-b border-slate-700">
-        <button
-          onClick={() => setTab("chat")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition ${
-            tab === "chat" ? "text-blue-400 border-b-2 border-blue-400" : "text-slate-400 hover:text-white"
-          }`}
-        >
+        <button onClick={() => setTab("chat")} className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition ${tab === "chat" ? "text-blue-400 border-b-2 border-blue-400" : "text-slate-400 hover:text-white"}`}>
           <MessageSquare size={15} /> Chat
         </button>
-        <button
-          onClick={() => setTab("users")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition ${
-            tab === "users" ? "text-blue-400 border-b-2 border-blue-400" : "text-slate-400 hover:text-white"
-          }`}
-        >
+        <button onClick={() => setTab("users")} className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition ${tab === "users" ? "text-blue-400 border-b-2 border-blue-400" : "text-slate-400 hover:text-white"}`}>
           <Users size={15} /> Users ({users.length})
         </button>
       </div>
@@ -84,7 +134,7 @@ const ChatSidebar = ({ session, users }) => {
       {/* Chat tab */}
       {tab === "chat" && (
         <>
-          <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2">
             {messages.length === 0 && (
               <p className="text-slate-500 text-xs text-center mt-8">No messages yet. Say hi!</p>
             )}
@@ -100,15 +150,15 @@ const ChatSidebar = ({ session, users }) => {
                       </span>
                       <span className="text-slate-600 text-xs">{formatTime(msg.timestamp)}</span>
                     </div>
-                    <div
-                      className={`px-3 py-2 rounded-2xl text-sm max-w-[85%] break-words ${
-                        msg.username === session.username
-                          ? "bg-blue-600 text-white rounded-tr-sm"
-                          : "bg-slate-700 text-slate-100 rounded-tl-sm"
-                      }`}
-                    >
-                      {msg.text}
-                    </div>
+                    {msg.type === "voice" ? (
+                      <VoiceMessage audioData={msg.audioData} isOwn={msg.username === session.username} />
+                    ) : (
+                      <div className={`px-3 py-2 rounded-2xl text-sm max-w-[85%] break-words ${
+                        msg.username === session.username ? "bg-blue-600 text-white rounded-tr-sm" : "bg-slate-700 text-slate-100 rounded-tl-sm"
+                      }`}>
+                        {msg.text}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -116,6 +166,7 @@ const ChatSidebar = ({ session, users }) => {
             <div ref={bottomRef} />
           </div>
 
+          {/* Input area */}
           <div className="px-3 py-3 border-t border-slate-700">
             <div className="flex gap-2">
               <input
@@ -126,13 +177,23 @@ const ChatSidebar = ({ session, users }) => {
                 placeholder="Type a message..."
                 className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
               />
-              <button
-                onClick={sendMessage}
-                className="p-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-white transition"
-              >
+              <button onClick={sendMessage} className="p-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-white transition">
                 <Send size={16} />
               </button>
+              <button
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+                className={`p-2 rounded-xl text-white transition ${recording ? "bg-red-500 animate-pulse" : "bg-slate-700 hover:bg-slate-600"}`}
+                title="Hold to record voice message"
+              >
+                {recording ? <Square size={16} /> : <Mic size={16} />}
+              </button>
             </div>
+            {recording && (
+              <p className="text-red-400 text-xs text-center mt-1 animate-pulse">● Recording... release to send</p>
+            )}
           </div>
         </>
       )}
@@ -142,23 +203,14 @@ const ChatSidebar = ({ session, users }) => {
         <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2">
           {users.map((u) => (
             <div key={u.id} className="flex items-center gap-3 bg-slate-800 rounded-xl px-3 py-2.5">
-              {/* Avatar */}
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                style={{ backgroundColor: u.color }}
-              >
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ backgroundColor: u.color }}>
                 {u.username[0].toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-white text-sm font-medium truncate">
-                  {u.username}
-                  {u.username === session.username && (
-                    <span className="text-slate-500 text-xs ml-1">(you)</span>
-                  )}
+                  {u.username}{u.username === session.username && <span className="text-slate-500 text-xs ml-1">(you)</span>}
                 </p>
-                {u.isDrawing && (
-                  <p className="text-amber-400 text-xs animate-pulse">drawing...</p>
-                )}
+                {u.isDrawing && <p className="text-amber-400 text-xs animate-pulse">drawing...</p>}
               </div>
               <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
             </div>

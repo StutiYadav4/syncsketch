@@ -143,6 +143,23 @@ io.on("connection", (socket) => {
     io.to(code).emit("chat-message", msg);
   });
 
+  // Voice message
+  socket.on("voice-message", (audioData) => {
+    const code = socket.data.roomCode;
+    const room = rooms.get(code);
+    if (!room) return;
+    const user = room.users.get(socket.id);
+    const msg = {
+      id: Date.now(),
+      type: "voice",
+      username: user?.username || "Unknown",
+      color: user?.color || "#fff",
+      audioData, // base64 string
+      timestamp: new Date().toISOString(),
+    };
+    io.to(code).emit("chat-message", msg);
+  });
+
   // Disconnect
   socket.on("disconnect", () => {
     const code = socket.data.roomCode;
