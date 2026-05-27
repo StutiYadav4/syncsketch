@@ -167,20 +167,5 @@ FRONTEND_URL=http://localhost:5173
 
 ## 📸 Screenshots
 
-> Add screenshots here by taking them from the live demo and uploading to the repo
+<img width="1919" height="866" alt="image" src="https://github.com/user-attachments/assets/fe065245-3c8d-4e04-96a3-49b84eedbf59" />
 
----
-
-## 🤝 Contributing
-
-Pull requests are welcome. For major changes, open an issue first.
-
----
-
-## 📄 License
-
-MIT
-
----
-
-<p align="center">Built with ❤️ using React, Node.js & Socket.io</p>
