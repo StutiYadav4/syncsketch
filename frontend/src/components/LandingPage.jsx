@@ -91,7 +91,7 @@ const LandingPage = ({ onJoin }) => {
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="password"
-                  placeholder="Password (optional — leave blank for public)"
+                  placeholder="Password (leave blank for public room)"
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setError(""); }}
                   className="w-full bg-slate-800 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
