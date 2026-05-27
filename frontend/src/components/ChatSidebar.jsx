@@ -59,7 +59,6 @@ const ChatSidebar = ({ session, users }) => {
   const [copied, setCopied] = useState(false);
   const [recording, setRecording] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
-  const [emojiSearch, setEmojiSearch] = useState("");
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const bottomRef = useRef(null);
@@ -117,7 +116,8 @@ const ChatSidebar = ({ session, users }) => {
   const drawingUsers = users.filter((u) => u.isDrawing);
 
   return (
-    <div className="w-72 flex flex-col bg-slate-900/90 backdrop-blur-xl border-l border-slate-700 h-full relative">
+    // ✅ FIX 1: wider sidebar — w-80 instead of w-72
+    <div className="w-80 flex flex-col bg-slate-900/90 backdrop-blur-xl border-l border-slate-700 h-full relative">
 
       {/* Room info */}
       <div className="px-4 py-4 border-b border-slate-700">
@@ -196,26 +196,16 @@ const ChatSidebar = ({ session, users }) => {
               </div>
             )}
 
-            {/* Emoji Picker */}
+            {/* ✅ FIX 2: Emoji picker — no search, just grid */}
             {showEmoji && (
               <div className="absolute bottom-20 right-2 z-50 bg-slate-800 border border-slate-600 rounded-2xl p-3 shadow-2xl w-64">
-                <input
-                  type="text"
-                  placeholder="Search emoji..."
-                  value={emojiSearch}
-                  onChange={(e) => setEmojiSearch(e.target.value)}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-white text-sm placeholder-slate-400 focus:outline-none focus:border-blue-500 mb-2"
-                />
-                <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto">
-                  {EMOJIS.filter((e) =>
-                    emojiSearch === "" || e.includes(emojiSearch)
-                  ).map((emoji, i) => (
+                <div className="grid grid-cols-8 gap-1 max-h-56 overflow-y-auto">
+                  {EMOJIS.map((emoji, i) => (
                     <button
                       key={i}
                       onClick={() => {
                         setInput((prev) => prev + emoji);
                         setShowEmoji(false);
-                        setEmojiSearch("");
                       }}
                       className="text-xl hover:bg-slate-700 rounded-lg p-1 transition"
                     >
@@ -226,6 +216,7 @@ const ChatSidebar = ({ session, users }) => {
               </div>
             )}
 
+            {/* ✅ FIX 3: mic button always visible, not inside {!recording} block */}
             <div className="flex gap-2">
               <input
                 type="text"
@@ -250,9 +241,10 @@ const ChatSidebar = ({ session, users }) => {
                   </button>
                 </>
               )}
+              {/* Mic always visible */}
               <button
                 onClick={toggleRecording}
-                className={`p-2 rounded-xl text-white transition-all duration-200 ${
+                className={`p-2 rounded-xl text-white transition-all duration-200 flex-shrink-0 ${
                   recording
                     ? "bg-red-500 hover:bg-red-600 scale-110 shadow-lg shadow-red-900/50"
                     : "bg-slate-700 hover:bg-slate-600"
