@@ -117,7 +117,7 @@ const ChatSidebar = ({ session, users }) => {
 
   return (
     // ✅ FIX 1: wider sidebar — w-80 instead of w-72
-    <div className="w-80 flex flex-col bg-slate-900/90 backdrop-blur-xl border-l border-slate-700 h-full relative">
+    <div className="w-96 flex flex-col bg-slate-900/90 backdrop-blur-xl border-l border-slate-700 h-full relative">
 
       {/* Room info */}
       <div className="px-4 py-4 border-b border-slate-700">
