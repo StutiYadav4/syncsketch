@@ -5,6 +5,7 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
+app.get("/ping", (req, res) => res.send("pong"));
 
 const server = http.createServer(app);
 const io = new Server(server, {
