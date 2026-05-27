@@ -1,0 +1,24 @@
+SyncSketch
+
+Realtime Collaborative Whiteboard
+
+
+
+
+https://syncsketch-3lbz.onrender.com
+
+WEBSITE - https://syncsketch-seven.vercel.app/
+
+
+
+Render for backend
+Vercel for frontend
+
+
+
+
+
+
+
+move the text box to desired location
+add emojis

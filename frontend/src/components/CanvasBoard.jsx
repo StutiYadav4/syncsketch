@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MessageSquare } from "lucide-react";
 import { socket } from "../socket/socket";
 import Toolbar from "./Toolbar";
 import ChatSidebar from "./ChatSidebar";
@@ -12,26 +13,41 @@ const CanvasBoard = ({ session }) => {
   const [brushSize, setBrushSize] = useState(5);
   const [strokes, setStrokes] = useState(session.strokes || []);
   const [users, setUsers] = useState(session.users || []);
+  const [cursors, setCursors] = useState({});
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
 
   const drawing = useRef(false);
   const startPoint = useRef(null);
   const previousPoint = useRef(null);
   const currentStroke = useRef([]);
 
-  // Text tool state
-  const [textInput, setTextInput] = useState(null); // { x, y }
+  const [textInput, setTextInput] = useState(null);
   const [textValue, setTextValue] = useState("");
   const textInputRef = useRef(null);
-  const textDragRef = useRef(null); // { startMouseX, startMouseY, startX, startY }
+  const textDragRef = useRef(null);
 
   const TOOLBAR_HEIGHT = 90;
+  const SIDEBAR_WIDTH = 320;
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setShowSidebar(false);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => {
-    const updateSize = () => {
+    const resizeCanvas = () => {
       const canvas = canvasRef.current;
       const overlay = overlayRef.current;
-      const sidebar = 288;
-      canvas.width = window.innerWidth - sidebar;
+      const sidebarW = showSidebar && !isMobile ? SIDEBAR_WIDTH : 0;
+      canvas.width = window.innerWidth - sidebarW;
       canvas.height = window.innerHeight - TOOLBAR_HEIGHT;
       overlay.width = canvas.width;
       overlay.height = canvas.height;
@@ -40,8 +56,12 @@ const CanvasBoard = ({ session }) => {
       strokes.forEach((s) => renderStroke(s, ctx));
     };
 
-    updateSize();
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    return () => window.removeEventListener("resize", resizeCanvas);
+  }, [showSidebar, isMobile]);
 
+  useEffect(() => {
     const ctx = canvasRef.current.getContext("2d");
     if (session.strokes?.length) {
       session.strokes.forEach((s) => renderStroke(s, ctx));
@@ -56,11 +76,23 @@ const CanvasBoard = ({ session }) => {
       setStrokes([]);
     });
     socket.on("user-list", setUsers);
+    socket.on("cursor-move", ({ id, username, x, y }) => {
+      setCursors((prev) => ({ ...prev, [id]: { username, x, y } }));
+    });
+    socket.on("cursor-remove", (id) => {
+      setCursors((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    });
 
     return () => {
       socket.off("draw");
       socket.off("clear-canvas");
       socket.off("user-list");
+      socket.off("cursor-move");
+      socket.off("cursor-remove");
     };
   }, []);
 
@@ -73,15 +105,21 @@ const CanvasBoard = ({ session }) => {
     ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
-  // Clamp point within canvas bounds
   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     return {
-      x: clamp(e.clientX - rect.left, 0, canvasRef.current.width),
-      y: clamp(e.clientY - rect.top, 0, canvasRef.current.height),
+      x: clamp(clientX - rect.left, 0, canvasRef.current.width),
+      y: clamp(clientY - rect.top, 0, canvasRef.current.height),
     };
+  };
+
+  const emitCursor = (e) => {
+    const pos = getPos(e);
+    socket.emit("cursor-move", pos);
   };
 
   const drawSegment = (seg, ctx) => {
@@ -148,7 +186,16 @@ const CanvasBoard = ({ session }) => {
     allStrokes.forEach((s) => renderStroke(s, ctx));
   };
 
-  // ── Text box dragging ──
+  // Export PNG
+  const exportPNG = () => {
+    const canvas = canvasRef.current;
+    const link = document.createElement("a");
+    link.download = `syncsketch-${session.roomCode}-${Date.now()}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
+  // Draggable text box
   const handleTextMouseDown = (e) => {
     e.stopPropagation();
     textDragRef.current = {
@@ -157,30 +204,27 @@ const CanvasBoard = ({ session }) => {
       startX: textInput.x,
       startY: textInput.y,
     };
-
     const onMove = (moveE) => {
       if (!textDragRef.current) return;
       const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
       const dx = moveE.clientX - textDragRef.current.startMouseX;
       const dy = moveE.clientY - textDragRef.current.startMouseY;
-      const newX = clamp(textDragRef.current.startX + dx, 0, canvas.width - 120);
-      const newY = clamp(textDragRef.current.startY + dy, 20, canvas.height);
-      setTextInput({ x: newX, y: newY });
+      setTextInput({
+        x: clamp(textDragRef.current.startX + dx, 0, canvas.width - 120),
+        y: clamp(textDragRef.current.startY + dy, 20, canvas.height),
+      });
     };
-
     const onUp = () => {
       textDragRef.current = null;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
 
-  // ── Canvas mouse handlers ──
   const handleMouseDown = (e) => {
+    e.preventDefault();
     const pos = getPos(e);
     if (activeTool === "text") {
       setTextInput(pos);
@@ -195,6 +239,8 @@ const CanvasBoard = ({ session }) => {
   };
 
   const handleMouseMove = (e) => {
+    e.preventDefault();
+    emitCursor(e);
     if (!drawing.current) return;
     const pos = getPos(e);
     const ctx = canvasRef.current.getContext("2d");
@@ -218,6 +264,7 @@ const CanvasBoard = ({ session }) => {
   };
 
   const handleMouseUp = (e) => {
+    e.preventDefault();
     if (!drawing.current) return;
     drawing.current = false;
     socket.emit("drawing-status", false);
@@ -248,7 +295,6 @@ const CanvasBoard = ({ session }) => {
     if (!textValue.trim() || !textInput) { setTextInput(null); return; }
     const canvas = canvasRef.current;
     const fontSize = Math.max(16, brushSize * 3);
-    // Clamp text placement within canvas
     const x = clamp(textInput.x, 0, canvas.width - 10);
     const y = clamp(textInput.y, fontSize, canvas.height);
     const stroke = [{ tool: "text", x, y, text: textValue, color, size: brushSize }];
@@ -274,6 +320,9 @@ const CanvasBoard = ({ session }) => {
     redrawCanvas(updated);
   };
 
+  // Find my color
+  const myColor = users.find((u) => u.username === session.username)?.color || "#3b82f6";
+
   return (
     <div className="w-screen h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-slate-900 flex flex-col overflow-hidden">
       <Toolbar
@@ -281,6 +330,7 @@ const CanvasBoard = ({ session }) => {
         brushSize={brushSize} setBrushSize={setBrushSize}
         clearCanvas={clearCanvas} undoLastStroke={undoLastStroke}
         activeTool={activeTool} setActiveTool={setActiveTool}
+        onExport={exportPNG}
       />
 
       <div className="flex flex-1 overflow-hidden" style={{ paddingTop: `${TOOLBAR_HEIGHT}px` }}>
@@ -288,16 +338,41 @@ const CanvasBoard = ({ session }) => {
         <div ref={containerRef} className="flex-1 relative overflow-hidden">
           <canvas
             ref={canvasRef}
-            className="absolute top-0 left-0 cursor-crosshair"
+            className="absolute top-0 left-0 cursor-crosshair touch-none"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
+            onTouchStart={handleMouseDown}
+            onTouchMove={handleMouseMove}
+            onTouchEnd={handleMouseUp}
           />
           <canvas
             ref={overlayRef}
             className="absolute top-0 left-0 pointer-events-none"
           />
+
+          {/* Other users' cursors */}
+          {Object.entries(cursors).map(([id, cursor]) => {
+            const cursorUser = users.find((u) => u.id === id);
+            const cursorColor = cursorUser?.color || "#3b82f6";
+            return (
+              <div
+                key={id}
+                className="absolute pointer-events-none z-40 flex flex-col items-start"
+                style={{ left: cursor.x, top: cursor.y, transform: "translate(8px, 8px)" }}
+              >
+                {/* Cursor dot */}
+                <div className="w-3 h-3 rounded-full border-2 border-white shadow-lg"
+                  style={{ backgroundColor: cursorColor, transform: "translate(-8px, -8px)" }} />
+                {/* Name tag */}
+                <div className="text-white text-xs px-2 py-0.5 rounded-full shadow-lg font-medium whitespace-nowrap"
+                  style={{ backgroundColor: cursorColor }}>
+                  {cursor.username}
+                </div>
+              </div>
+            );
+          })}
 
           {/* Draggable text input */}
           {textInput && (
@@ -312,7 +387,6 @@ const CanvasBoard = ({ session }) => {
               }}
               onMouseDown={handleTextMouseDown}
             >
-              {/* Drag handle bar */}
               <div className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-t-lg flex items-center justify-between gap-4 select-none">
                 <span>⠿ drag</span>
                 <span className="opacity-60 text-xs">Enter to place • Esc to cancel</span>
@@ -343,9 +417,24 @@ const CanvasBoard = ({ session }) => {
               />
             </div>
           )}
+
+          {/* Mobile sidebar toggle */}
+          {isMobile && (
+            <button
+              onClick={() => setShowSidebar((prev) => !prev)}
+              className="absolute top-3 right-3 z-50 p-2 bg-slate-800/90 border border-slate-600 rounded-xl text-white shadow-lg"
+            >
+              <MessageSquare size={20} />
+            </button>
+          )}
         </div>
 
-        <ChatSidebar session={session} users={users} />
+        {/* Sidebar — hidden on mobile unless toggled */}
+        {(showSidebar || !isMobile) && (
+          <div className={`${isMobile ? "absolute right-0 top-0 h-full z-40 shadow-2xl" : "relative"}`}>
+            <ChatSidebar session={session} users={users} />
+          </div>
+        )}
       </div>
     </div>
   );
