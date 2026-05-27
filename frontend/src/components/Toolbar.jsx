@@ -31,7 +31,7 @@ const Toolbar = ({
         </div>
         <div>
           <h1 className="text-xl font-bold text-white">SyncSketch</h1>
-          <p className="text-xxxs text-slate-300">Realtime Collaborative Whiteboard</p>
+          <p className="text-xs text-slate-300">Realtime Collaborative Whiteboard</p>
         </div>
       </div>
 
